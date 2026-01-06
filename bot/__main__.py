@@ -9,11 +9,12 @@ sys.path.append(os.getcwd())
 
 from pyrogram import Client, idle
 from aiohttp import web
+from apscheduler.schedulers.asyncio import AsyncIOScheduler # Scheduler Import
 from bot.info import Config
 from bot.utils.database import db
 from bot.utils.stream_helper import media_streamer 
 from bot.utils.human_readable import humanbytes 
-from bot.plugins.monitor import bandwidth_monitor # ব্যান্ডউইথ মনিটর
+from bot.plugins.monitor import bandwidth_monitor
 
 # Logging Setup
 logging.basicConfig(
@@ -21,6 +22,13 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
+
+# --- 🔥 AUTO RESTART FUNCTION 🔥 ---
+async def auto_restart():
+    logger.info("⏳ Scheduled Auto-Restart Triggered!")
+    # রিস্টার্ট করার আগে বাফার ক্লিন করা
+    sys.stdout.flush()
+    os.execl(sys.executable, sys.executable, *sys.argv)
 
 # --- 🌐 WEB SERVER ROUTES ---
 routes = web.RouteTableDef()
@@ -43,7 +51,6 @@ async def file_api_handler(request):
         file_size_bytes = int(file_data.get('file_size', 0))
         file_size = humanbytes(file_size_bytes)
         
-        # Streamer Bot এর URL ব্যবহার করে লিংক তৈরি
         stream_link = f"{Config.URL}/stream/{unique_id}"
         
         response_data = {
@@ -65,7 +72,7 @@ async def file_api_handler(request):
         logger.error(f"API Error: {e}")
         return web.json_response({"error": str(e)}, status=500, headers={"Access-Control-Allow-Origin": "*"})
 
-# --- 🔥 MAIN REQUEST PROCESSOR (Stream/Download) 🔥 ---
+# --- 🔥 MAIN REQUEST PROCESSOR 🔥 ---
 async def process_request(request):
     try:
         file_id = request.match_info['file_id']
@@ -77,11 +84,9 @@ async def process_request(request):
         db_file_name = file_data.get('file_name')
         locations = file_data.get('locations', [])
         
-        # Fallback for old DB structure
         if not locations and file_data.get('msg_id'):
             locations.append({'chat_id': Config.BIN_CHANNEL_1, 'message_id': file_data.get('msg_id')})
 
-        # Load Balancing (চ্যানেলগুলোর মধ্যে র্যান্ডমলি সিলেক্ট করবে)
         random.shuffle(locations)
         src_msg = None
         bot = request.app['bot']
@@ -108,7 +113,6 @@ async def process_request(request):
         logger.error(f"Server Error: {e}")
         return web.Response(text=f"Server Error: {e}", status=500)
 
-# Streaming Routes
 @routes.get("/stream/{file_id}")
 async def stream_route_handler(request): return await process_request(request)
 
@@ -120,13 +124,12 @@ async def download_handler(request): return await process_request(request)
 
 # --- 🚀 BOT STARTUP LOGIC ---
 async def start_streamer():
-    # Pyrogram Client Setup
     bot = Client(
         "StreamerBot",
         api_id=Config.API_ID,
         api_hash=Config.API_HASH,
         bot_token=Config.BOT_TOKEN,
-        plugins={"root": "bot.plugins"}, # কমান্ড হ্যান্ডেল করার জন্য
+        plugins={"root": "bot.plugins"}, 
         workdir="session/",
         in_memory=True,
         sleep_threshold=300
@@ -139,11 +142,10 @@ async def start_streamer():
     logger.info("🚀 Starting Streamer Bot...")
     await bot.start()
 
-    # ব্যান্ডউইথ মনিটর চালু করা (Oracle এর আলাদা ডাটা সেভ করবে)
     asyncio.create_task(bandwidth_monitor())
     logger.info("📊 Bandwidth Monitor Active.")
 
-    # রিস্টার্ট মেসেজ চেক
+    # Restart Message Logic
     restart_file = os.path.join(os.getcwd(), ".restartmsg")
     if os.path.exists(restart_file):
         try:
@@ -156,7 +158,14 @@ async def start_streamer():
         except Exception as e:
             logger.error(f"Restart Message Error: {e}")
 
-    # চ্যানেল ভেরিফিকেশন
+    # --- ⏰ AUTO RESTART SCHEDULER (UPDATED) ---
+    scheduler = AsyncIOScheduler()
+    # hours=8 মানে প্রতি ৮ ঘণ্টায় একবার (24/8 = 3 times a day)
+    scheduler.add_job(auto_restart, "interval", hours=8) 
+    scheduler.start()
+    logger.info("⏰ Auto-Restart Scheduled (Every 8 Hours)")
+
+    # Channel Check
     target_channels = [Config.BIN_CHANNEL_1, Config.BIN_CHANNEL_2, Config.BIN_CHANNEL_3, Config.BIN_CHANNEL_4]
     for ch in target_channels:
         if ch and int(ch) != 0:
@@ -166,7 +175,6 @@ async def start_streamer():
             except Exception as e:
                 logger.error(f"❌ Error verifying channel {ch}: {e}")
 
-    # Web Server Start
     runner = web.AppRunner(app)
     await runner.setup()
     site = web.TCPSite(runner, Config.BIND_ADRESS, Config.PORT)
