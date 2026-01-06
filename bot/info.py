@@ -1,6 +1,11 @@
 import os
 from os import environ
 
+# Load config.env if exists
+if os.path.exists('config.env'):
+    load_dotenv('config.env')
+    
+
 class Config:
     # --- 🤖 NEW BOT INFO ---
     API_ID = int(environ.get("API_ID", "123456"))
