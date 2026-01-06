@@ -16,7 +16,7 @@ class Database:
             join_date=datetime.date.today().isoformat()
         )
 
-    # --- 🔥 OPTIMIZED ADD FILE (Atomic Update) 🔥 ---
+    # --- 🔥 ADD FILE (Global) ---
     async def add_file(self, media_msg: Message, file_id: str, unique_id: str):
         media = getattr(media_msg, media_msg.media.value)
         file_name = getattr(media, 'file_name', 'Unknown')
@@ -24,7 +24,6 @@ class Database:
         mime_type = getattr(media, 'mime_type', 'None')
         caption = media_msg.caption or ""
 
-        # ১. ফাইলের বেসিক তথ্য সেভ/আপডেট করা
         await self.col.update_one(
             {'_id': unique_id},
             {
@@ -39,9 +38,7 @@ class Database:
             upsert=True
         )
 
-        # ২. নতুন লোকেশন যোগ করা
         new_loc = {'chat_id': media_msg.chat.id, 'message_id': media_msg.id}
-        
         await self.col.update_one(
             {'_id': unique_id},
             {'$addToSet': {'locations': new_loc}}
@@ -53,11 +50,9 @@ class Database:
     async def get_total_files_count(self):
         return await self.col.count_documents({})
 
-    async def delete_all_files(self):
-        await self.col.delete_many({})
-
-    # --- 📊 BANDWIDTH & STATS ---
-
+    # --- 📊 MAIN BOT BANDWIDTH (Heroku) ---
+    # এই ফাংশনগুলো মেইন বটের জন্য (যা আগে থেকেই ছিল)
+    
     async def add_bandwidth(self, upload_bytes, download_bytes):
         await self.config_col.update_one(
             {'_id': 'bandwidth_stats'},
@@ -74,7 +69,6 @@ class Database:
     async def check_monthly_reset(self):
         now = datetime.datetime.now()
         current_month = f"{now.year}-{now.month}" 
-
         data = await self.config_col.find_one({'_id': 'bandwidth_stats'})
         
         if not data:
@@ -85,37 +79,58 @@ class Database:
             )
             return
 
-        saved_month = data.get('last_reset')
-
-        if saved_month != current_month:
+        if data.get('last_reset') != current_month:
             await self.config_col.update_one(
                 {'_id': 'bandwidth_stats'},
-                {'$set': {
-                    'total_upload': 0,
-                    'total_download': 0,
-                    'last_reset': current_month
-                }}
+                {'$set': {'total_upload': 0, 'total_download': 0, 'last_reset': current_month}}
             )
-            print(f"📅 New Month Detected! Stats Reset for {current_month}")
 
-    async def get_total_storage(self):
-        pipeline = [
-            {"$group": {"_id": None, "total_size": {"$sum": "$file_size"}}}
-        ]
+    # --- 🚀 STREAMER BANDWIDTH (Oracle - New Functions) ---
+    # এখানে আমরা আলাদা ID 'streamer_bandwidth' ব্যবহার করছি
+    
+    async def add_streamer_bandwidth(self, upload, download):
+        await self.config_col.update_one(
+            {'_id': 'streamer_bandwidth'},
+            {'$inc': {'upload': upload, 'download': download}},
+            upsert=True
+        )
+
+    async def get_streamer_bandwidth(self):
+        data = await self.config_col.find_one({'_id': 'streamer_bandwidth'})
+        if not data:
+            return 0, 0
+        return data.get('upload', 0), data.get('download', 0)
+
+    async def check_streamer_reset(self):
+        now = datetime.datetime.now()
+        current_month = f"{now.year}-{now.month}" 
+        data = await self.config_col.find_one({'_id': 'streamer_bandwidth'})
         
+        if not data:
+            await self.config_col.update_one(
+                {'_id': 'streamer_bandwidth'},
+                {'$set': {'last_reset': current_month, 'upload': 0, 'download': 0}},
+                upsert=True
+            )
+            return
+
+        if data.get('last_reset') != current_month:
+            await self.config_col.update_one(
+                {'_id': 'streamer_bandwidth'},
+                {'$set': {'upload': 0, 'download': 0, 'last_reset': current_month}}
+            )
+
+    # --- 💾 TOTAL STORAGE ---
+    async def get_total_storage(self):
+        pipeline = [{"$group": {"_id": None, "total_size": {"$sum": "$file_size"}}}]
         cursor = self.col.aggregate(pipeline)
         result = await cursor.to_list(length=1)
-        
         total_bytes = result[0]['total_size'] if result else 0
         total_files = await self.col.count_documents({})
-        
         return total_files, total_bytes
 
-    # --- 🔐 AUTH SYSTEM (Private Bot Logic) ---
-    # এই অংশটি আপনার দেওয়া কোডে ছিল না, এটি যোগ করা হলো
-
+    # --- 🔐 AUTH SYSTEM ---
     async def add_auth_user(self, user_id):
-        """ ইউজারকে অথরাইজড লিস্টে অ্যাড করবে """
         await self.config_col.update_one(
             {'_id': 'auth_list'},
             {'$addToSet': {'users': int(user_id)}},
@@ -123,22 +138,18 @@ class Database:
         )
 
     async def remove_auth_user(self, user_id):
-        """ ইউজারকে লিস্ট থেকে রিমুভ করবে """
         await self.config_col.update_one(
             {'_id': 'auth_list'},
             {'$pull': {'users': int(user_id)}}
         )
 
     async def get_auth_users(self):
-        """ সব অথরাইজড ইউজারের লিস্ট দেবে """
         data = await self.config_col.find_one({'_id': 'auth_list'})
         return data['users'] if data and 'users' in data else []
 
     async def is_user_allowed(self, user_id):
-        """ চেক করবে ইউজার অথরাইজড কি না """
         if user_id == Config.OWNER_ID:
             return True
-            
         data = await self.config_col.find_one({'_id': 'auth_list'})
         if data and 'users' in data:
             return int(user_id) in data['users']
