@@ -10,7 +10,7 @@ class Config:
     # --- 🗄️ SAME DATABASE (Main Bot এরটা দেবেন) ---
     DATABASE_URL = environ.get("DATABASE_URL", "") 
     DATABASE_NAME = environ.get("DATABASE_NAME", "AnimeToki")
-    COLLECTION_NAME = environ.get("COLLECTION_NAME", "Files")
+    COLLECTION_NAME = environ.get("COLLECTION_NAME", "Telegram_Files")
 
     # --- 📦 SAME BIN CHANNELS (এই বটকেও অ্যাডমিন বানাতে হবে) ---
     BIN_CHANNEL_1 = int(environ.get("BIN_CHANNEL_1", "0"))
