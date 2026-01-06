@@ -1,22 +1,23 @@
 import os
-import sys
-from logging import getLogger, basicConfig, INFO
+import logging
+from os import environ
+from dotenv import load_dotenv
 
-basicConfig(level=INFO)
-log = getLogger(__name__)
+logging.basicConfig(level=logging.INFO)
+load_dotenv('config.env')
 
-def update_requirements():
-    if os.path.exists("requirements.txt"):
-        os.system("pip3 install -U -r requirements.txt")
+UPSTREAM_REPO = environ.get('UPSTREAM_REPO', "")
+UPSTREAM_BRANCH = environ.get('UPSTREAM_BRANCH', "main")
 
-def start_update():
-    if os.path.exists(".git"):
-        log.info("Checking for Updates...")
-        os.system("git pull")
-        update_requirements()
-        log.info("Update Process Completed.")
-    else:
-        log.info("No .git folder found. Skipping Update.")
+if UPSTREAM_REPO:
+    if os.path.exists('.git'):
+        os.system("rm -rf .git")
+    
+    update_cmd = f"git init -q && git config --global user.email 'bot@updates.com' && git config --global user.name 'Bot' && git remote add origin {UPSTREAM_REPO} && git fetch origin -q && git reset --hard origin/{UPSTREAM_BRANCH} -q"
 
-if __name__ == "__main__":
-    start_update()
+    logging.info(f"🔄 Checking updates from: {UPSTREAM_REPO}")
+    try:
+        os.system(update_cmd)
+        logging.info("✅ Update Completed!")
+    except Exception as e:
+        logging.error(f"❌ Update Failed: {e}")
