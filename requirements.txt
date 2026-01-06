@@ -5,3 +5,4 @@ aiohttp
 dnspython
 psutil
 apscheduler
+python-dotenv
