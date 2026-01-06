@@ -1,5 +1,5 @@
 # Python 3.10 Base Image
-FROM python:3.10-slim-buster
+FROM python:3.9-slim-bookworm
 
 # Working Directory
 WORKDIR /app
