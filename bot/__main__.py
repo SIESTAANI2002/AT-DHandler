@@ -7,7 +7,8 @@ from aiohttp import web
 from bot.info import Config
 from bot.utils.database import db
 from bot.utils.stream_helper import media_streamer 
-from bot.utils.human_readable import humanbytes 
+from bot.utils.human_readable import humanbytes
+from bot.plugins.monitor import bandwidth_monitor # 🔥 Monitor Import
 
 # Root Path Fix
 sys.path.append(os.getcwd())
@@ -78,14 +79,15 @@ async def stream_handler(request):
 
 # --- 🔥 MAIN STARTUP ---
 async def start_streamer():
-    # Pyrogram Client (No Updates Mode)
-    # no_updates=True মানে এটি কোনো মেসেজ রিড করবে না, শুধু সার্ভার হিসেবে কাজ করবে
+    # Pyrogram Client
+    # 🔥 FIX: no_updates=True সরানো হয়েছে এবং plugins অ্যাড করা হয়েছে
+    # যাতে /stats এবং /restart কমান্ড কাজ করে।
     bot = Client(
         "StreamerBot",
         api_id=Config.API_ID,
         api_hash=Config.API_HASH,
         bot_token=Config.BOT_TOKEN,
-        no_updates=True, 
+        plugins={"root": "bot.plugins"}, # Plugins loading enabled
         in_memory=True,
         sleep_threshold=300
     )
@@ -96,6 +98,24 @@ async def start_streamer():
 
     logger.info("🚀 Starting Streamer Bot...")
     await bot.start()
+
+    # 🔥 FIX: Bandwidth Monitor Start
+    asyncio.create_task(bandwidth_monitor())
+    logger.info("📊 Bandwidth Monitor Started")
+
+    # 🔥 FIX: Restart Message Check
+    # রিস্টার্ট হওয়ার পর মেসেজ এডিট করার লজিক
+    restart_file = os.path.join(os.getcwd(), ".restartmsg")
+    if os.path.exists(restart_file):
+        try:
+            with open(restart_file, "r") as f:
+                content = f.read().split()
+                if len(content) == 2:
+                    chat_id, msg_id = map(int, content)
+                    await bot.edit_message_text(chat_id, msg_id, "✅ **Streamer Restarted Successfully!**")
+            os.remove(restart_file)
+        except Exception as e:
+            logger.error(f"Restart Message Error: {e}")
 
     # Channel Check
     try:
