@@ -5,7 +5,7 @@ from bot.utils.database import db
 from bot.utils.human_readable import humanbytes
 from bot.info import Config
 
-# Uptime Calculation
+# Uptime
 BOT_START_TIME = time.time()
 
 def get_readable_time(seconds):
@@ -25,47 +25,45 @@ def get_readable_time(seconds):
 
 @Client.on_message(filters.command(["stats", "status"]) & filters.user(Config.OWNER_ID))
 async def stats_handler(bot, message):
-    msg = await message.reply("🔄 **Fetching Stats...**", quote=True)
+    msg = await message.reply("🔄 **Fetching Data...**", quote=True)
     
     # 1. System Stats
     cpu_per = psutil.cpu_percent()
-    cpu_count = psutil.cpu_count() # Core Count
+    cpu_count = psutil.cpu_count()
     mem = psutil.virtual_memory()
-    ram_per = mem.percent
-    total_ram = humanbytes(mem.total)
     disk = psutil.disk_usage("/")
     
-    # 2. Database Stats
+    # 2. Database Stats (Global Files)
     total_files, total_bytes = await db.get_total_storage()
-    cloud_storage = humanbytes(total_bytes)
     
-    # 3. Bandwidth Stats
-    db_upload, db_download = await db.get_bandwidth()
-    total_ul = humanbytes(db_upload)
-    total_dl = humanbytes(db_download)
+    # 3. 🔥 Streamer Bandwidth (Persistent from DB) 🔥
+    # আমরা streamer_bandwidth কালেকশন থেকে ডাটা আনছি
+    bw_data = await db.config_col.find_one({'_id': 'streamer_bandwidth'})
     
-    # 4. Uptime & Disk Space
+    if bw_data:
+        ul_bytes = bw_data.get('upload', 0)
+        dl_bytes = bw_data.get('download', 0)
+    else:
+        ul_bytes = 0
+        dl_bytes = 0
+        
+    server_upload = humanbytes(ul_bytes)
+    server_download = humanbytes(dl_bytes)
+    
+    # 4. Uptime & Disk
     uptime = get_readable_time(time.time() - BOT_START_TIME)
-    total_space = humanbytes(disk.total)
-    free_space = humanbytes(disk.free)
 
-    # 🔥 আপনার চাওয়া ফরম্যাট 🔥
     stats_text = (
-        f"🤖 **Bot System Stats**\n\n"
+        f"🤖 **Streamer Server Stats** (Persistent)\n\n"
         f"⏳ **Uptime:** `{uptime}`\n"
-        f"💻 **CPU:** `{cpu_per}%` | **RAM:** `{ram_per}%`\n"
-        f"🖥️ **Core:** `{cpu_count}` | **Total Ram:** `{total_ram}`\n\n"
+        f"💻 **CPU:** `{cpu_per}%` | **RAM:** `{mem.percent}%`\n"
+        f"💾 **Disk Free:** `{humanbytes(disk.free)}`\n\n"
 
-        f"☁️ **Telegram Cloud Storage:**\n"
-        f"📚 **Total Files:** `{total_files}`\n"
-        f"📦 **Total Size:** `{cloud_storage}`\n\n"
+        f"☁️ **Telegram Files:** `{total_files}`\n\n"
 
-        f"📡 **Monthly Bandwidth:**\n"
-        f"⬆️ **Upload:** `{total_ul}`\n"
-        f"⬇️ **Download:** `{total_dl}`\n\n"
-
-        f"💾 **Server Disk:**\n"
-        f"✅ **Free:** `{free_space}` / `{total_space}`"
+        f"📡 **Monthly Traffic (This Server):**\n"
+        f"⬆️ **Streamed:** `{server_upload}`\n"
+        f"⬇️ **Fetched:** `{server_download}`"
     )
     
     await msg.edit(stats_text)
