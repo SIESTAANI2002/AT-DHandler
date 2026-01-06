@@ -1,6 +1,5 @@
 build:
   docker:
     web: Dockerfile
-
 run:
-  web: ./run.sh
+  web: bash run.sh
